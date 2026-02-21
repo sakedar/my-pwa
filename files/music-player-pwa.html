@@ -1,0 +1,808 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover, maximum-scale=1.0, user-scalable=no">
+<title>Music Player</title>
+<meta name="description" content="Apple-style Music Player">
+<meta name="theme-color" content="#fc3c44">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Music">
+<link rel="manifest" href="manifest.json">
+<link rel="apple-touch-icon" href="icons/icon-192.png">
+<style>
+*, *::before, *::after { margin:0; padding:0; box-sizing:border-box; -webkit-tap-highlight-color:transparent; }
+
+:root {
+  --accent: #fc3c44;
+  --sub: rgba(255,255,255,0.45);
+  --card: rgba(255,255,255,0.07);
+  --safe-top: env(safe-area-inset-top, 44px);
+  --safe-bottom: env(safe-area-inset-bottom, 20px);
+}
+
+html, body {
+  height: 100%;
+  overflow: hidden;
+  background: #0a0a0a;
+  color: #fff;
+  font-family: -apple-system, 'SF Pro Display', 'Helvetica Neue', sans-serif;
+  -webkit-font-smoothing: antialiased;
+}
+
+body {
+  display: flex;
+  flex-direction: column;
+  position: fixed;
+  inset: 0;
+  touch-action: pan-y;
+}
+
+/* Ambient background */
+#ambient {
+  position: fixed;
+  inset: -20%;
+  z-index: 0;
+  transition: background 1.5s ease;
+  filter: blur(80px) saturate(2);
+  opacity: 0.35;
+  pointer-events: none;
+}
+
+/* App shell */
+.app {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  padding-top: var(--safe-top);
+  padding-bottom: var(--safe-bottom);
+}
+
+/* Status bar space */
+.status-bar {
+  height: max(var(--safe-top), 44px);
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  padding: 0 20px 8px;
+  font-size: 13px;
+  font-weight: 600;
+  flex-shrink: 0;
+}
+
+/* Tabs */
+.tabs {
+  display: flex;
+  gap: 0;
+  margin: 0 16px 16px;
+  background: rgba(255,255,255,0.07);
+  border-radius: 13px;
+  padding: 3px;
+  flex-shrink: 0;
+}
+.tab {
+  flex: 1;
+  padding: 9px;
+  text-align: center;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--sub);
+  border-radius: 10px;
+  cursor: pointer;
+  transition: all 0.2s;
+  user-select: none;
+}
+.tab.active {
+  background: rgba(255,255,255,0.13);
+  color: #fff;
+}
+
+/* Scrollable area */
+.content {
+  flex: 1;
+  overflow: hidden;
+  position: relative;
+}
+
+.view { display: none; flex-direction: column; height: 100%; }
+.view.active { display: flex; }
+
+/* ══════════ NOW PLAYING ══════════ */
+#view-nowplaying {
+  padding: 0 24px;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+  scrollbar-width: none;
+}
+#view-nowplaying::-webkit-scrollbar { display: none; }
+
+.np-art-wrap {
+  display: flex;
+  justify-content: center;
+  padding: 8px 0 28px;
+}
+.np-art {
+  width: min(280px, 72vw);
+  height: min(280px, 72vw);
+  border-radius: 22px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: clamp(60px, 18vw, 90px);
+  box-shadow: 0 32px 64px rgba(0,0,0,0.6), 0 0 0 1px rgba(255,255,255,0.05);
+  transition: transform 0.5s cubic-bezier(0.34,1.56,0.64,1), box-shadow 0.5s;
+  will-change: transform;
+}
+.np-art.playing {
+  transform: scale(1.05);
+  box-shadow: 0 44px 80px rgba(0,0,0,0.7), 0 0 0 1px rgba(255,255,255,0.08);
+}
+
+.np-meta {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 8px;
+}
+.np-titles { flex: 1; overflow: hidden; }
+.np-title {
+  font-size: clamp(20px, 5.5vw, 24px);
+  font-weight: 700;
+  letter-spacing: -0.5px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.np-artist {
+  font-size: clamp(15px, 4vw, 17px);
+  color: var(--accent);
+  font-weight: 500;
+  margin-top: 3px;
+}
+.heart-btn {
+  background: none; border: none;
+  color: var(--sub);
+  font-size: 24px;
+  cursor: pointer;
+  padding: 8px;
+  transition: all 0.2s;
+  flex-shrink: 0;
+}
+.heart-btn.liked { color: var(--accent); }
+.heart-btn:active { transform: scale(1.3); }
+
+/* Progress */
+.prog-section { margin-bottom: 20px; }
+.prog-bar {
+  height: 5px;
+  background: rgba(255,255,255,0.15);
+  border-radius: 3px;
+  cursor: pointer;
+  margin-bottom: 8px;
+  position: relative;
+  touch-action: none;
+}
+.prog-fill {
+  height: 100%;
+  background: #fff;
+  border-radius: 3px;
+  position: relative;
+  min-width: 0;
+  transition: width 0.1s linear;
+}
+.prog-thumb {
+  width: 16px; height: 16px;
+  background: #fff;
+  border-radius: 50%;
+  position: absolute;
+  right: -8px; top: -5.5px;
+  box-shadow: 0 2px 6px rgba(0,0,0,0.4);
+  transition: transform 0.2s;
+}
+.prog-bar:active .prog-thumb { transform: scale(1.3); }
+.prog-times {
+  display: flex;
+  justify-content: space-between;
+  font-size: 11px;
+  color: var(--sub);
+  font-weight: 500;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.2px;
+}
+
+/* Controls */
+.controls {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 24px;
+}
+.ctrl-btn {
+  background: none; border: none;
+  color: #fff; cursor: pointer;
+  display: flex; align-items: center; justify-content: center;
+  transition: opacity 0.15s, transform 0.15s;
+  padding: 10px;
+  -webkit-user-select: none;
+}
+.ctrl-btn:active { opacity: 0.5; transform: scale(0.9); }
+.ctrl-btn.dim { opacity: 0.6; }
+.ctrl-btn.dim.on { opacity: 1; color: var(--accent); }
+
+.play-btn {
+  width: 70px; height: 70px;
+  background: #fff;
+  border-radius: 50%;
+  display: flex; align-items: center; justify-content: center;
+  box-shadow: 0 8px 24px rgba(0,0,0,0.35);
+  transition: transform 0.2s cubic-bezier(0.34,1.56,0.64,1);
+}
+.play-btn:active { transform: scale(0.92) !important; opacity: 1; }
+.play-btn svg { color: #000; }
+
+/* Volume */
+.vol-row {
+  display: flex; align-items: center; gap: 10px;
+  margin-bottom: 24px;
+}
+.vol-icon { color: var(--sub); flex-shrink: 0; }
+.vol-slider {
+  flex: 1;
+  -webkit-appearance: none;
+  height: 5px;
+  background: rgba(255,255,255,0.18);
+  border-radius: 3px;
+  outline: none;
+  cursor: pointer;
+}
+.vol-slider::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  width: 20px; height: 20px;
+  background: #fff;
+  border-radius: 50%;
+  cursor: pointer;
+  box-shadow: 0 2px 6px rgba(0,0,0,0.3);
+}
+
+/* Bottom action row */
+.actions-row {
+  display: flex;
+  justify-content: space-around;
+  align-items: center;
+  padding-bottom: 8px;
+}
+.act-btn {
+  background: none; border: none;
+  color: var(--sub); cursor: pointer;
+  display: flex; flex-direction: column; align-items: center;
+  gap: 5px;
+  font-size: 10px; font-weight: 600;
+  padding: 8px 12px;
+  transition: color 0.2s;
+}
+.act-btn:active { color: #fff; }
+
+/* ══════════ LIBRARY ══════════ */
+#view-library { overflow: hidden; }
+
+.lib-header-wrap { padding: 0 20px 12px; flex-shrink: 0; }
+.lib-title { font-size: 30px; font-weight: 800; letter-spacing: -0.8px; margin-bottom: 12px; }
+.search-bar {
+  display: flex; align-items: center;
+  background: rgba(255,255,255,0.1);
+  border-radius: 12px;
+  padding: 10px 14px; gap: 8px;
+}
+.search-bar input {
+  background: none; border: none;
+  color: #fff; font-size: 15px;
+  outline: none; flex: 1;
+  font-family: inherit;
+}
+.search-bar input::placeholder { color: var(--sub); }
+
+.song-list {
+  flex: 1;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+  padding: 0 16px;
+  scrollbar-width: none;
+}
+.song-list::-webkit-scrollbar { display: none; }
+
+.song-item {
+  display: flex; align-items: center; gap: 13px;
+  padding: 10px 4px;
+  border-bottom: 1px solid rgba(255,255,255,0.05);
+  cursor: pointer;
+  transition: opacity 0.15s;
+  border-radius: 4px;
+}
+.song-item:active { opacity: 0.55; }
+.song-item:last-child { border-bottom: none; }
+
+.song-art {
+  width: 52px; height: 52px;
+  border-radius: 10px;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 26px;
+  flex-shrink: 0;
+  box-shadow: 0 4px 12px rgba(0,0,0,0.35);
+}
+.song-info { flex: 1; overflow: hidden; }
+.song-name {
+  font-size: 15px; font-weight: 500;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.song-name.now { color: var(--accent); }
+.song-meta {
+  font-size: 12px; color: var(--sub);
+  margin-top: 2px;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.song-right { flex-shrink: 0; display: flex; align-items: center; }
+.song-dur { font-size: 13px; color: var(--sub); font-variant-numeric: tabular-nums; }
+
+.wave-bars { display: flex; align-items: flex-end; gap: 2px; height: 18px; }
+.wave-bars span {
+  width: 3px; background: var(--accent); border-radius: 2px;
+  animation: wav 0.9s ease-in-out infinite;
+}
+.wave-bars span:nth-child(1) { height: 7px; animation-delay: 0s; }
+.wave-bars span:nth-child(2) { height: 15px; animation-delay: 0.18s; }
+.wave-bars span:nth-child(3) { height: 10px; animation-delay: 0.09s; }
+@keyframes wav { 0%,100%{transform:scaleY(.4)} 50%{transform:scaleY(1)} }
+
+/* ══════════ MINI PLAYER ══════════ */
+.mini-player {
+  position: absolute;
+  bottom: 0; left: 12px; right: 12px;
+  background: rgba(38,38,38,0.97);
+  backdrop-filter: blur(30px);
+  -webkit-backdrop-filter: blur(30px);
+  border-radius: 16px;
+  padding: 10px 14px;
+  display: flex; align-items: center; gap: 12px;
+  box-shadow: 0 8px 32px rgba(0,0,0,0.5);
+  border: 1px solid rgba(255,255,255,0.08);
+  cursor: pointer;
+  transform: translateY(0);
+  transition: transform 0.3s, opacity 0.3s;
+  z-index: 10;
+}
+.mini-player.hidden { transform: translateY(100px); opacity: 0; pointer-events: none; }
+.mini-art { width: 42px; height: 42px; border-radius: 9px; display:flex; align-items:center; justify-content:center; font-size:22px; flex-shrink:0; }
+.mini-info { flex:1; overflow:hidden; }
+.mini-title { font-size:14px; font-weight:600; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+.mini-sub { font-size:12px; color:var(--sub); margin-top:2px; }
+.mini-controls { display:flex; gap:2px; }
+.mini-btn { background:none; border:none; color:#fff; cursor:pointer; padding:7px; transition:opacity 0.15s; }
+.mini-btn:active { opacity:0.5; }
+
+/* ══════════ NAV BAR ══════════ */
+.nav-bar {
+  display: flex;
+  justify-content: space-around;
+  align-items: center;
+  padding: 10px 0 4px;
+  background: rgba(18,18,18,0.97);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  border-top: 1px solid rgba(255,255,255,0.06);
+  flex-shrink: 0;
+  padding-bottom: max(4px, env(safe-area-inset-bottom));
+}
+.nav-item {
+  display:flex; flex-direction:column; align-items:center; gap:4px;
+  cursor:pointer; padding:4px 20px;
+  color: var(--sub); transition:color 0.2s;
+  user-select: none;
+}
+.nav-item.active { color: var(--accent); }
+.nav-item svg { width:24px; height:24px; fill:none; stroke:currentColor; stroke-width:2; stroke-linecap:round; stroke-linejoin:round; }
+.nav-item span { font-size:10px; font-weight:600; }
+
+/* Install banner */
+.install-banner {
+  position: fixed;
+  top: 0; left: 0; right: 0;
+  background: var(--accent);
+  color: #fff;
+  text-align: center;
+  padding: 12px 16px;
+  font-size: 13px;
+  font-weight: 600;
+  z-index: 1000;
+  display: flex; align-items: center; justify-content: space-between;
+  gap: 10px;
+  transform: translateY(-100%);
+  transition: transform 0.4s cubic-bezier(0.34,1.56,0.64,1);
+}
+.install-banner.show { transform: translateY(0); }
+.install-banner button {
+  background: #fff; color: var(--accent);
+  border: none; border-radius: 8px;
+  padding: 6px 14px; font-size: 12px; font-weight: 700;
+  cursor: pointer; white-space: nowrap; flex-shrink: 0;
+}
+.install-banner .dismiss { background: none; color: rgba(255,255,255,0.7); padding: 4px 8px; }
+
+svg { fill:none; stroke:currentColor; stroke-width:2; stroke-linecap:round; stroke-linejoin:round; }
+</style>
+</head>
+<body>
+
+<div id="ambient"></div>
+
+<!-- Install prompt banner -->
+<div class="install-banner" id="installBanner">
+  <span>📲 Add Music to your home screen!</span>
+  <div style="display:flex;gap:8px">
+    <button onclick="installApp()">Install</button>
+    <button class="dismiss" onclick="dismissInstall()">✕</button>
+  </div>
+</div>
+
+<div class="app">
+
+  <!-- Status bar time -->
+  <div class="status-bar">
+    <span id="clockTime">9:41</span>
+    <span>Music</span>
+    <span>●●●</span>
+  </div>
+
+  <!-- Tabs -->
+  <div class="tabs">
+    <div class="tab active" data-view="nowplaying">Now Playing</div>
+    <div class="tab" data-view="library">Library</div>
+  </div>
+
+  <!-- Content area -->
+  <div class="content">
+
+    <!-- NOW PLAYING -->
+    <div class="view active" id="view-nowplaying">
+
+      <div class="np-art-wrap">
+        <div class="np-art" id="npArt">🎵</div>
+      </div>
+
+      <div class="np-meta">
+        <div class="np-titles">
+          <div class="np-title" id="npTitle">No Track Selected</div>
+          <div class="np-artist" id="npArtist">Tap a song in Library</div>
+        </div>
+        <button class="heart-btn" id="heartBtn" onclick="toggleLike()">
+          <svg width="22" height="22" viewBox="0 0 24 24">
+            <path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"/>
+          </svg>
+        </button>
+      </div>
+
+      <div class="prog-section">
+        <div class="prog-bar" id="progBar">
+          <div class="prog-fill" id="progFill" style="width:0%">
+            <div class="prog-thumb"></div>
+          </div>
+        </div>
+        <div class="prog-times">
+          <span id="curTime">0:00</span>
+          <span id="totTime">0:00</span>
+        </div>
+      </div>
+
+      <div class="controls">
+        <button class="ctrl-btn dim" id="shuffleBtn" onclick="toggleShuffle()">
+          <svg width="22" height="22" viewBox="0 0 24 24"><polyline points="16 3 21 3 21 8"></polyline><line x1="4" y1="20" x2="21" y2="3"></line><polyline points="21 16 21 21 16 21"></polyline><line x1="15" y1="15" x2="21" y2="21"></line></svg>
+        </button>
+        <button class="ctrl-btn" onclick="prevSong()">
+          <svg width="36" height="36" viewBox="0 0 24 24"><polygon points="19 20 9 12 19 4 19 20"></polygon><line x1="5" y1="19" x2="5" y2="5"></line></svg>
+        </button>
+        <button class="ctrl-btn play-btn" onclick="togglePlay()">
+          <svg id="playIcon" width="28" height="28" viewBox="0 0 24 24">
+            <polygon points="5 3 19 12 5 21 5 3" fill="#000" stroke="none"></polygon>
+          </svg>
+        </button>
+        <button class="ctrl-btn" onclick="nextSong()">
+          <svg width="36" height="36" viewBox="0 0 24 24"><polygon points="5 4 15 12 5 20 5 4"></polygon><line x1="19" y1="5" x2="19" y2="19"></line></svg>
+        </button>
+        <button class="ctrl-btn dim" id="repeatBtn" onclick="toggleRepeat()">
+          <svg width="22" height="22" viewBox="0 0 24 24"><polyline points="17 1 21 5 17 9"></polyline><path d="M3 11V9a4 4 0 0 1 4-4h14"></path><polyline points="7 23 3 19 7 15"></polyline><path d="M21 13v2a4 4 0 0 1-4 4H3"></path></svg>
+        </button>
+      </div>
+
+      <div class="vol-row">
+        <svg class="vol-icon" width="15" height="15" viewBox="0 0 24 24"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"></polygon></svg>
+        <input type="range" class="vol-slider" id="volSlider" min="0" max="100" value="80" oninput="setVol(this.value)">
+        <svg class="vol-icon" width="20" height="20" viewBox="0 0 24 24"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"></polygon><path d="M15.54 8.46a5 5 0 0 1 0 7.07"></path><path d="M19.07 4.93a10 10 0 0 1 0 14.14"></path></svg>
+      </div>
+
+      <div class="actions-row">
+        <button class="act-btn">
+          <svg width="20" height="20" viewBox="0 0 24 24"><path d="M5 17H3a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2h-2"></path><polygon points="12 15 17 21 7 21 12 15"></polygon></svg>
+          AirPlay
+        </button>
+        <button class="act-btn" onclick="shareTrack()">
+          <svg width="20" height="20" viewBox="0 0 24 24"><circle cx="18" cy="5" r="3"></circle><circle cx="6" cy="12" r="3"></circle><circle cx="18" cy="19" r="3"></circle><line x1="8.59" y1="13.51" x2="15.42" y2="17.49"></line><line x1="15.41" y1="6.51" x2="8.59" y2="10.49"></line></svg>
+          Share
+        </button>
+        <button class="act-btn" onclick="switchTab('library')">
+          <svg width="20" height="20" viewBox="0 0 24 24"><line x1="8" y1="6" x2="21" y2="6"></line><line x1="8" y1="12" x2="21" y2="12"></line><line x1="8" y1="18" x2="21" y2="18"></line><line x1="3" y1="6" x2="3.01" y2="6"></line><line x1="3" y1="12" x2="3.01" y2="12"></line><line x1="3" y1="18" x2="3.01" y2="18"></line></svg>
+          Queue
+        </button>
+      </div>
+
+    </div><!-- end now playing -->
+
+    <!-- LIBRARY -->
+    <div class="view" id="view-library">
+      <div class="lib-header-wrap">
+        <div class="lib-title">Library</div>
+        <div class="search-bar">
+          <svg width="16" height="16" viewBox="0 0 24 24"><circle cx="11" cy="11" r="8"></circle><line x1="21" y1="21" x2="16.65" y2="16.65"></line></svg>
+          <input type="text" placeholder="Search songs, artists…" oninput="filterSongs(this.value)" id="searchInput">
+        </div>
+      </div>
+      <div class="song-list" id="songList"></div>
+
+      <!-- Mini player inside library view -->
+      <div class="mini-player hidden" id="miniPlayer" onclick="switchTab('nowplaying')">
+        <div class="mini-art" id="miniArt">🎵</div>
+        <div class="mini-info">
+          <div class="mini-title" id="miniTitle">Not Playing</div>
+          <div class="mini-sub" id="miniSub">—</div>
+        </div>
+        <div class="mini-controls">
+          <button class="mini-btn" onclick="event.stopPropagation(); togglePlay()">
+            <svg id="miniPlayIcon" width="22" height="22" viewBox="0 0 24 24">
+              <polygon points="5 3 19 12 5 21 5 3" fill="currentColor" stroke="none"></polygon>
+            </svg>
+          </button>
+          <button class="mini-btn" onclick="event.stopPropagation(); nextSong()">
+            <svg width="22" height="22" viewBox="0 0 24 24"><polygon points="5 4 15 12 5 20 5 4"></polygon><line x1="19" y1="5" x2="19" y2="19"></line></svg>
+          </button>
+        </div>
+      </div>
+    </div>
+
+  </div><!-- end content -->
+
+  <!-- Nav bar -->
+  <div class="nav-bar">
+    <div class="nav-item active" id="nav-nowplaying" onclick="switchTab('nowplaying')">
+      <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"></circle><polygon points="10 8 16 12 10 16 10 8" fill="currentColor" stroke="none"></polygon></svg>
+      <span>Now Playing</span>
+    </div>
+    <div class="nav-item" id="nav-library" onclick="switchTab('library')">
+      <svg viewBox="0 0 24 24"><path d="M9 18V5l12-2v13"></path><circle cx="6" cy="18" r="3"></circle><circle cx="18" cy="16" r="3"></circle></svg>
+      <span>Library</span>
+    </div>
+  </div>
+
+</div>
+
+<script>
+// Register service worker
+if ('serviceWorker' in navigator) {
+  window.addEventListener('load', () => {
+    navigator.serviceWorker.register('./sw.js').catch(() => {});
+  });
+}
+
+// PWA install prompt
+let deferredPrompt = null;
+window.addEventListener('beforeinstallprompt', e => {
+  e.preventDefault();
+  deferredPrompt = e;
+  setTimeout(() => document.getElementById('installBanner').classList.add('show'), 2000);
+});
+
+function installApp() {
+  if (deferredPrompt) {
+    deferredPrompt.prompt();
+    deferredPrompt.userChoice.then(() => { deferredPrompt = null; dismissInstall(); });
+  } else {
+    alert('To install:\n1. Tap the browser menu (⋮)\n2. Select "Add to Home Screen"\n3. Tap "Add"');
+  }
+}
+function dismissInstall() {
+  document.getElementById('installBanner').classList.remove('show');
+}
+
+// Clock
+function updateClock() {
+  const d = new Date();
+  document.getElementById('clockTime').textContent =
+    d.getHours() + ':' + String(d.getMinutes()).padStart(2,'0');
+}
+updateClock();
+setInterval(updateClock, 15000);
+
+// ── Song data ──
+const songs = [
+  { id:1, title:"Blinding Lights",   artist:"The Weeknd",    album:"After Hours",     dur:200, e:"🌆", g:"linear-gradient(135deg,#e84393,#7b2ff7)", c:"#e84393" },
+  { id:2, title:"Levitating",        artist:"Dua Lipa",      album:"Future Nostalgia",dur:203, e:"🪐", g:"linear-gradient(135deg,#7b2ff7,#00d4ff)", c:"#7b2ff7" },
+  { id:3, title:"Stay",              artist:"The Kid LAROI", album:"F*CK LOVE 3",     dur:141, e:"🌙", g:"linear-gradient(135deg,#1a1a2e,#e94560)", c:"#e94560" },
+  { id:4, title:"Good 4 U",          artist:"Olivia Rodrigo",album:"SOUR",            dur:178, e:"🌸", g:"linear-gradient(135deg,#ff6b6b,#ffd93d)", c:"#ff6b6b" },
+  { id:5, title:"Peaches",           artist:"Justin Bieber", album:"Justice",         dur:198, e:"🍑", g:"linear-gradient(135deg,#f7971e,#ffd200)", c:"#f7971e" },
+  { id:6, title:"Industry Baby",     artist:"Lil Nas X",     album:"MONTERO",         dur:212, e:"🔥", g:"linear-gradient(135deg,#fc3c44,#ff6b35)", c:"#fc3c44" },
+  { id:7, title:"Heat Waves",        artist:"Glass Animals", album:"Dreamland",       dur:238, e:"🌊", g:"linear-gradient(135deg,#0f3443,#34e89e)", c:"#34e89e" },
+  { id:8, title:"Save Your Tears",   artist:"The Weeknd",    album:"After Hours",     dur:215, e:"🖤", g:"linear-gradient(135deg,#0f0c29,#302b63)", c:"#a855f7" },
+  { id:9, title:"Montero",           artist:"Lil Nas X",     album:"MONTERO",         dur:137, e:"⚡", g:"linear-gradient(135deg,#f953c6,#b91d73)", c:"#f953c6" },
+  { id:10,title:"drivers license",   artist:"Olivia Rodrigo",album:"SOUR",            dur:242, e:"🌧️", g:"linear-gradient(135deg,#1e3c72,#2a5298)", c:"#5a9fd4" },
+];
+
+let idx = 0, playing = false, curTime = 0;
+let liked = [], shuf = false, rep = false;
+let filtered = [...songs], timer = null;
+
+const fmt = s => `${Math.floor(s/60)}:${String(Math.floor(s%60)).padStart(2,'0')}`;
+const song = () => filtered[idx] || songs[0];
+
+function renderList() {
+  const cur = song();
+  document.getElementById('songList').innerHTML = filtered.map((s,i) => `
+    <div class="song-item" onclick="playSong(${i})">
+      <div class="song-art" style="background:${s.g}">${s.e}</div>
+      <div class="song-info">
+        <div class="song-name ${cur.id===s.id?'now':''}">${s.title}</div>
+        <div class="song-meta">${s.artist} · ${s.album}</div>
+      </div>
+      <div class="song-right">
+        ${cur.id===s.id && playing
+          ? `<div class="wave-bars"><span></span><span></span><span></span></div>`
+          : `<span class="song-dur">${fmt(s.dur)}</span>`}
+      </div>
+    </div>`).join('');
+}
+
+function updateNP() {
+  const s = song();
+  document.getElementById('npArt').textContent = s.e;
+  document.getElementById('npArt').style.background = s.g;
+  document.getElementById('npTitle').textContent = s.title;
+  document.getElementById('npArtist').textContent = s.artist;
+  document.getElementById('totTime').textContent = fmt(s.dur);
+  document.getElementById('ambient').style.background = s.g;
+  document.getElementById('heartBtn').classList.toggle('liked', liked.includes(s.id));
+  // Mini
+  document.getElementById('miniArt').textContent = s.e;
+  document.getElementById('miniArt').style.background = s.g;
+  document.getElementById('miniTitle').textContent = s.title;
+  document.getElementById('miniSub').textContent = s.artist;
+}
+
+function updateProg() {
+  const s = song();
+  const pct = s ? (curTime/s.dur)*100 : 0;
+  document.getElementById('progFill').style.width = pct + '%';
+  document.getElementById('curTime').textContent = fmt(curTime);
+}
+
+function tick() {
+  const s = song();
+  curTime += 0.5;
+  if (curTime >= s.dur) {
+    if (rep) curTime = 0;
+    else { nextSong(); return; }
+  }
+  updateProg();
+}
+
+function togglePlay() {
+  playing = !playing;
+  const pi = document.getElementById('playIcon');
+  const mi = document.getElementById('miniPlayIcon');
+  pi.innerHTML = playing
+    ? `<rect x="6" y="4" width="4" height="16" fill="#000" stroke="none"></rect><rect x="14" y="4" width="4" height="16" fill="#000" stroke="none"></rect>`
+    : `<polygon points="5 3 19 12 5 21 5 3" fill="#000" stroke="none"></polygon>`;
+  mi.innerHTML = playing
+    ? `<rect x="6" y="4" width="4" height="16" fill="currentColor" stroke="none"></rect><rect x="14" y="4" width="4" height="16" fill="currentColor" stroke="none"></rect>`
+    : `<polygon points="5 3 19 12 5 21 5 3" fill="currentColor" stroke="none"></polygon>`;
+  document.getElementById('npArt').classList.toggle('playing', playing);
+  if (playing) { clearInterval(timer); timer = setInterval(tick, 500); }
+  else clearInterval(timer);
+  renderList();
+  updateMini();
+}
+
+function updateMini() {
+  const mini = document.getElementById('miniPlayer');
+  const inLibrary = document.getElementById('view-library').classList.contains('active');
+  mini.classList.toggle('hidden', !inLibrary || filtered.length === 0);
+}
+
+function playSong(i) {
+  idx = i;
+  curTime = 0;
+  updateNP(); updateProg();
+  if (!playing) togglePlay();
+  else { clearInterval(timer); timer = setInterval(tick, 500); renderList(); }
+}
+
+function nextSong() {
+  idx = shuf
+    ? (idx + 1 + Math.floor(Math.random()*filtered.length)) % filtered.length
+    : (idx+1) % filtered.length;
+  curTime = 0; updateNP(); updateProg();
+  if (playing) { clearInterval(timer); timer = setInterval(tick, 500); }
+  renderList();
+}
+
+function prevSong() {
+  if (curTime > 3) { curTime = 0; updateProg(); return; }
+  idx = (idx-1+filtered.length) % filtered.length;
+  curTime = 0; updateNP(); updateProg();
+  if (playing) { clearInterval(timer); timer = setInterval(tick, 500); }
+  renderList();
+}
+
+function filterSongs(q) {
+  q = q.toLowerCase();
+  filtered = q ? songs.filter(s => s.title.toLowerCase().includes(q)||s.artist.toLowerCase().includes(q)) : [...songs];
+  idx = 0;
+  renderList();
+}
+
+function toggleLike() {
+  const id = song().id;
+  liked = liked.includes(id) ? liked.filter(x=>x!==id) : [...liked, id];
+  document.getElementById('heartBtn').classList.toggle('liked', liked.includes(id));
+}
+function toggleShuffle() {
+  shuf = !shuf;
+  const btn = document.getElementById('shuffleBtn');
+  btn.classList.toggle('on', shuf);
+}
+function toggleRepeat() {
+  rep = !rep;
+  const btn = document.getElementById('repeatBtn');
+  btn.classList.toggle('on', rep);
+}
+function setVol(v) { /* visual only – no audio API */ }
+function shareTrack() {
+  const s = song();
+  if (navigator.share) navigator.share({ title: s.title, text: `Now playing: ${s.title} by ${s.artist}` }).catch(()=>{});
+  else alert(`Now playing: "${s.title}" by ${s.artist}`);
+}
+
+// Seek
+document.getElementById('progBar').addEventListener('click', e => {
+  const bar = e.currentTarget;
+  const pct = e.offsetX / bar.offsetWidth;
+  curTime = pct * song().dur;
+  updateProg();
+});
+
+// Touch seek
+let seeking = false;
+document.getElementById('progBar').addEventListener('touchstart', e => { seeking = true; }, {passive:true});
+document.getElementById('progBar').addEventListener('touchmove', e => {
+  if (!seeking) return;
+  const bar = document.getElementById('progBar');
+  const rect = bar.getBoundingClientRect();
+  const pct = Math.max(0, Math.min(1, (e.touches[0].clientX - rect.left) / rect.width));
+  curTime = pct * song().dur;
+  updateProg();
+}, {passive:true});
+document.addEventListener('touchend', () => { seeking = false; });
+
+function switchTab(tab) {
+  document.querySelectorAll('.tab').forEach(t => t.classList.toggle('active', t.dataset.view === tab));
+  document.querySelectorAll('.view').forEach(v => v.classList.toggle('active', v.id === `view-${tab}`));
+  document.querySelectorAll('.nav-item').forEach(n => n.classList.toggle('active', n.id === `nav-${tab}`));
+  updateMini();
+  renderList();
+}
+document.querySelectorAll('.tab').forEach(t => t.addEventListener('click', () => switchTab(t.dataset.view)));
+
+// Init
+updateNP(); renderList(); updateProg();
+</script>
+</body>
+</html>
